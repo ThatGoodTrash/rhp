@@ -1,2 +1,2 @@
 # rhp
-Get an available ephemeral high port
+Get an available random high port
