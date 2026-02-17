@@ -1,35 +1,163 @@
-name: Release
+name: Tests and release
 
 on:
   push:
-    tags:
-      - 'v*' # Triggers on pushes to tags starting with 'v'
+    branches:
+      - "**"
+  pull_request:
+
+env:
+  CRATE_NAME: rhp
+  GITHUB_TOKEN: ${{ github.token }}
+  RUST_BACKTRACE: 1
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
-    steps:
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+  test:
+    name: ${{ matrix.platform.os-name }} with rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.platform.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # Platforms that don't work:
+          #
+          # - sparc64-unknown-linux-gnu - cannot compile openssl-sys
+          # - x86_64-unknown-illumos - weird error compiling openssl - "bin/sh: 1: granlib: not found"
 
-  build-and-publish:
-    needs: create-release
-    runs-on: ubuntu-latest
+          - os-name: FreeBSD-x86_64
+            runs-on: ubuntu-24.04
+            target: x86_64-unknown-freebsd
+            bin: rhp
+            name: rhp-FreeBSD-x86_64.tar.gz
+            skip-tests: true
+          - os-name: Linux-x86_64
+            runs-on: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            bin: rhp
+            name: rhp-Linux-x86_64-musl.tar.gz
+          - os-name: Linux-aarch64
+            runs-on: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            bin: rhp
+            name: rhp-Linux-aarch64-musl.tar.gz
+          - os-name: Linux-arm
+            runs-on: ubuntu-24.04
+            target: arm-unknown-linux-musleabi
+            bin: rhp
+            name: rhp-Linux-arm-musl.tar.gz
+          - os-name: Linux-i686
+            runs-on: ubuntu-24.04
+            target: i686-unknown-linux-musl
+            bin: rhp
+            name: rhp-Linux-i686-musl.tar.gz
+            skip-tests: true
+          - os-name: Linux-powerpc
+            runs-on: ubuntu-24.04
+            target: powerpc-unknown-linux-gnu
+            bin: rhp
+            name: rhp-Linux-powerpc-gnu.tar.gz
+            skip-tests: true
+          - os-name: Linux-powerpc64
+            runs-on: ubuntu-24.04
+            target: powerpc64-unknown-linux-gnu
+            bin: rhp
+            name: rhp-Linux-powerpc64-gnu.tar.gz
+            skip-tests: true
+          - os-name: Linux-powerpc64le
+            runs-on: ubuntu-24.04
+            target: powerpc64le-unknown-linux-gnu
+            bin: rhp
+            name: rhp-Linux-powerpc64le.tar.gz
+            skip-tests: true
+          - os-name: Linux-riscv64
+            runs-on: ubuntu-24.04
+            target: riscv64gc-unknown-linux-gnu
+            bin: rhp
+            name: rhp-Linux-riscv64gc-gnu.tar.gz
+          - os-name: Linux-s390x
+            runs-on: ubuntu-24.04
+            target: s390x-unknown-linux-gnu
+            bin: rhp
+            name: rhp-Linux-s390x-gnu.tar.gz
+            skip-tests: true
+          - os-name: NetBSD-x86_64
+            runs-on: ubuntu-24.04
+            target: x86_64-unknown-netbsd
+            bin: rhp
+            name: rhp-NetBSD-x86_64.tar.gz
+            skip-tests: true
+          - os-name: Windows-aarch64
+            runs-on: windows-latest
+            target: aarch64-pc-windows-msvc
+            bin: rhp.exe
+            name: rhp-Windows-aarch64.zip
+            skip-tests: true
+          - os-name: Windows-i686
+            runs-on: windows-latest
+            target: i686-pc-windows-msvc
+            bin: rhp.exe
+            name: rhp-Windows-i686.zip
+            skip-tests: true
+          - os-name: Windows-x86_64
+            runs-on: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: rhp.exe
+            name: rhp-Windows-x86_64.zip
+          - os-name: macOS-x86_64
+            runs-on: macOS-latest
+            target: x86_64-apple-darwin
+            bin: rhp
+            name: rhp-Darwin-x86_64.tar.gz
+          - os-name: macOS-aarch64
+            runs-on: macOS-latest
+            target: aarch64-apple-darwin
+            bin: rhp
+            name: rhp-Darwin-aarch64.tar.gz
+        toolchain:
+          - stable
+        include:
+          - platform:
+              os-name: Linux-x86_64
+              runs-on: ubuntu-24.04
+              target: x86_64-unknown-linux-musl
+              bin: rhp
+            toolchain: beta
+          - platform:
+              os-name: Linux-x86_64
+              runs-on: ubuntu-24.04
+              target: x86_64-unknown-linux-musl
+              bin: rhp
+            toolchain: nightly
     steps:
       - uses: actions/checkout@v4
-      - name: Build and upload Rust binary
-        uses: taiki-e/upload-rust-binary-action@v1.28.0
+      - name: Run tests
+        uses: houseabsolute/actions-rust-cross@v1
         with:
-          bin: rhp
-          target: x86_64-unknown-linux-musl
-          token: ${{ secrets.GITHUB_TOKEN }}
+          command: "test"
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--locked --release"
+          # This works around the issue in https://github.com/cross-rs/cross/issues/1450. The `main`
+          # branch updated its images long ago, but the last cross release, 0.2.5, is still using
+          # Ubuntu 16.04 as the base for some images.
+          #
+          # This also contains a fix for https://github.com/cross-rs/cross/issues/1619. Previously,
+          # we used an earlier commit, but this started erroring because some dependencies included
+          # cross config.
+          cross-version: 107433fa9d71d7eb506cd5bf5467bab89edb7a52
+        if: ${{ !matrix.platform.skip-tests }}
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: "build"
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--locked --release"
+          strip: true
+          cross-version: 107433fa9d71d7eb506cd5bf5467bab89edb7a52
+      - name: Publish artifacts and release
+        uses: houseabsolute/actions-rust-release@v0
+        with:
+          executable-name: rhp
+          target: ${{ matrix.platform.target }}
+        if: matrix.toolchain == 'stable'
