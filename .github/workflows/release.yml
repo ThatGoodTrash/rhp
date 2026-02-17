@@ -1,30 +1,35 @@
 name: Release
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*' # Triggers on pushes to tags starting with 'v'
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
+  create-release:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            archive: tar.gz tar.xz tar.zst
-          - target: x86_64-apple-darwin
-            archive: zip
+    outputs:
+      release_id: ${{ steps.create_release.outputs.id }}
     steps:
-      - uses: actions/checkout@master
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable # Use the latest stable Rust version
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.5
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+  build-and-publish:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and upload Rust binary
+        uses: taiki-e/upload-rust-binary-action@v1.28.0
+        with:
+          bin: rhp
+          target: x86_64-unknown-linux-musl
+          token: ${{ secrets.GITHUB_TOKEN }}
